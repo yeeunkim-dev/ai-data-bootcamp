@@ -1,7 +1,7 @@
 """
 KDnuggets 기사 수집기 (AI·데이터 기술 트렌드 파악용)
 
-수집 항목: 제목, URL, 요약문, 저자, 발행일(UTC), 카테고리, 수집일
+수집 항목: 제목, URL, 요약문, 저자, 발행일(UTC), 카테고리, 태그, 수집일
 수집 방식: ① WordPress REST API (구조화된 JSON, 가장 안정적)
            ② 실패 시 RSS 피드로 대체 (최신 10~20건 정도만 제공)
 
@@ -25,7 +25,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (personal study project)"}
 DELAY = 1.0          # 요청 간 대기(초) - 서버 부담 줄이기
 MAX_PAGES = 4        # API 페이지 수 (페이지당 50건 → 최대 200건)
 PER_PAGE = 50
-COLUMNS = ["title", "url", "summary", "author", "published", "category", "collected_at"]
+COLUMNS = ["title", "url", "summary", "author", "published", "category", "tags", "collected_at"]
 
 
 def is_allowed(url: str) -> bool:
@@ -79,12 +79,10 @@ def collect_via_api() -> list[dict]:
         for p in posts:
             emb = p.get("_embedded", {})
             authors = [a.get("name", "") for a in emb.get("author", []) if "name" in a]
-            cats = [
-                t.get("name", "")
-                for group in emb.get("wp:term", [])
-                for t in group
-                if t.get("taxonomy") == "category"
-            ]
+            terms = [t for group in emb.get("wp:term", []) for t in group]
+            cats = [t.get("name", "") for t in terms if t.get("taxonomy") == "category"]
+            # 카테고리는 대부분 "Originals"라 주제 분석에는 태그가 더 유용함
+            tags = [t.get("name", "") for t in terms if t.get("taxonomy") == "post_tag"]
             rows.append({
                 "title": clean_text(p["title"]["rendered"]),
                 "url": p.get("link", ""),
@@ -92,6 +90,7 @@ def collect_via_api() -> list[dict]:
                 "author": ", ".join(authors),
                 "published": p.get("date_gmt", ""),   # UTC 기준
                 "category": ", ".join(cats),
+                "tags": ", ".join(tags),
                 "collected_at": collected_at,
             })
         print(f"API {page}페이지: {len(posts)}건")
@@ -126,6 +125,7 @@ def collect_via_rss() -> list[dict]:
             "published": pub,
             # RSS의 category 에는 카테고리와 태그가 섞여 있음
             "category": ", ".join(c.text for c in item.findall("category") if c.text),
+            "tags": "",  # RSS에서는 카테고리와 구분되지 않아 비워 둠
             "collected_at": collected_at,
         })
     return rows
